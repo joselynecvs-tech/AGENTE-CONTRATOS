@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #070709;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -15%, rgba(250, 204, 21, 0.08), transparent),
+      radial-gradient(circle at 90% 85%, rgba(234, 179, 8, 0.04), transparent);
+    color: #f4f4f5;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+}
+
+/* Estilización de barra de desplazamiento formal negro y oro */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0c0c0f;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2b271a;
+  border-radius: 9999px;
+  border: 1px solid rgba(250, 204, 21, 0.18);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #473d22;
+}
+
+.gold-hairline {
+  border-color: rgba(250, 204, 21, 0.18);
+}
+
+.gold-hairline-strong {
+  border-color: rgba(250, 204, 21, 0.42);
+}
+
+.gold-gradient-text {
+  background: linear-gradient(135deg, #fef08a 0%, #facc15 48%, #ca8a04 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}

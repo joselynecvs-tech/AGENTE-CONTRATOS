@@ -1,0 +1,815 @@
+<!doctype html>
+<html lang="es" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LEXAURA · Analizador y Clasificador de Contratos</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              obsidian: {
+                950: '#070709',
+                900: '#0C0C0F',
+                850: '#121216',
+                800: '#18181D',
+                700: '#24242C',
+              },
+              gold: {
+                50: '#FEFCE8',
+                100: '#FEF9C3',
+                200: '#FEF08A',
+                300: '#FDE047',
+                400: '#FACC15',
+                500: '#EAB308',
+                600: '#CA8A04',
+                700: '#A16207',
+                800: '#854D0E',
+                900: '#713F12',
+              },
+            },
+            fontFamily: {
+              serif: ['"Playfair Display"', 'Georgia', 'serif'],
+              sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+              mono: ['"JetBrains Mono"', 'monospace'],
+            },
+            boxShadow: {
+              gold: '0 0 28px -8px rgba(250, 204, 21, 0.25)',
+              'gold-sm': '0 0 14px -4px rgba(250, 204, 21, 0.2)',
+            },
+          },
+        },
+      };
+    </script>
+    <style>
+      body {
+        background-color: #070709;
+        background-image:
+          radial-gradient(ellipse 80% 50% at 50% -15%, rgba(250, 204, 21, 0.08), transparent),
+          radial-gradient(circle at 90% 85%, rgba(234, 179, 8, 0.04), transparent);
+        color: #f4f4f5;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      h1, h2, h3, h4, .font-display {
+        font-family: 'Playfair Display', Georgia, serif;
+      }
+      .gold-hairline {
+        border-color: rgba(250, 204, 21, 0.18);
+      }
+      .gold-gradient-text {
+        background: linear-gradient(135deg, #fef08a 0%, #facc15 48%, #ca8a04 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: #0c0c0f; }
+      ::-webkit-scrollbar-thumb {
+        background: #2b271a;
+        border-radius: 9999px;
+        border: 1px solid rgba(250, 204, 21, 0.18);
+      }
+    </style>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body class="bg-obsidian-950 text-zinc-100 antialiased selection:bg-gold-400 selection:text-obsidian-950">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useMemo, useRef } = React;
+
+      const FREE_TIER_MODELS = [
+        { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Recomendado · Nivel Gratuito)' },
+        { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Alta Velocidad · Nivel Gratuito)' },
+        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Compatibilidad · Nivel Gratuito)' },
+      ];
+
+      const CONTRACT_GROUPS = {
+        jugadores: {
+          id: 'jugadores',
+          label: 'Jugadores',
+          subtitle: 'Deportistas, fichajes, cesiones y derechos de imagen',
+          badgeClass: 'bg-gold-400/15 text-gold-300 border border-gold-400/35',
+        },
+        administradores: {
+          id: 'administradores',
+          label: 'Administradores',
+          subtitle: 'Alta dirección, gerencia, mandatos y apoderados',
+          badgeClass: 'bg-amber-400/15 text-amber-200 border border-amber-400/35',
+        },
+        proveedores: {
+          id: 'proveedores',
+          label: 'Proveedores',
+          subtitle: 'Servicios externos, suministro, licencias y SLA',
+          badgeClass: 'bg-yellow-600/20 text-yellow-200 border border-yellow-500/35',
+        },
+      };
+
+      const GROUP_ORDER = ['jugadores', 'administradores', 'proveedores'];
+
+      const RISK_STYLES = {
+        bajo: { label: 'Riesgo Bajo', badgeClass: 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30' },
+        medio: { label: 'Riesgo Medio', badgeClass: 'bg-gold-900/40 text-gold-300 border border-gold-400/40' },
+        alto: { label: 'Riesgo Alto', badgeClass: 'bg-red-950/70 text-red-300 border border-red-500/40' },
+      };
+
+      const SAMPLE_CONTRACTS = [
+        {
+          id: 'sample-jugador',
+          label: 'Ejemplo · Jugador',
+          fileName: 'Contrato_Jugador_Profesional_2026.txt',
+          text: `CONTRATO LABORAL DEPORTIVO Y CESIÓN DE DERECHOS DE IMAGEN
+En la ciudad de Madrid, a 15 de julio de 2026.
+CLUB ATLÉTICO ÁUREO S.A.D. ("EL CLUB") y D. Mateo Alejandro Vargas Ríos ("EL JUGADOR").
+PRIMERA.- OBJETO: El Club contrata los servicios deportivos profesionales del Jugador para integrar la plantilla del Primer Equipo en competiciones oficiales.
+SEGUNDA.- DURACIÓN: 3 temporadas deportivas, del 1 de julio de 2026 al 30 de junio de 2029.
+TERCERA.- RETRIBUCIÓN: Salario fijo bruto anual de $480,000 USD en 12 mensualidades, más prima de $50,000 USD por clasificación continental.
+CUARTA.- DERECHOS DE IMAGEN: Cesión de imagen institucional vinculada a patrocinadores del Club.
+QUINTA.- CLÁUSULA DE RESCISIÓN: Indemnización anticipada unilateral fijada en $8,500,000 USD.`,
+        },
+        {
+          id: 'sample-administrador',
+          label: 'Ejemplo · Administrador',
+          fileName: 'Contrato_Alta_Direccion_Administrador.txt',
+          text: `CONTRATO MERCANTIL DE PRESTACIÓN DE SERVICIOS DE ADMINISTRADOR Y ALTA DIRECCIÓN
+En Ciudad de México, a 01 de septiembre de 2026.
+GRUPO CORPORATIVO VÉRTICE S.A. de C.V. ("LA SOCIEDAD") y Dra. Valeria Mendoza Castellanos ("LA ADMINISTRADORA").
+1. NOMBRAMIENTO: Directora General y Administradora Delegada con poder general para actos de administración, aprobación presupuestal hasta $250,000 USD y representación mercantil.
+2. VIGENCIA: 4 años, del 1 de octubre de 2026 al 30 de septiembre de 2030.
+3. COMPENSACIÓN: Honorarios fijos de $14,500 USD mensuales más bono anual de 18% por EBITDA.
+4. CONFIDENCIALIDAD Y NO COMPETENCIA: Confidencialidad indefinida y no competencia por 18 meses posteriores sin compensación adicional.`,
+        },
+        {
+          id: 'sample-proveedor',
+          label: 'Ejemplo · Proveedor',
+          fileName: 'Contrato_Proveedor_Servicios_Cloud.txt',
+          text: `CONTRATO MARCO DE SUMINISTRO TECNOLÓGICO Y SERVICIOS EN LA NUBE (SLA)
+Celebrado el 10 de octubre de 2026 entre Organización Aurum S.A. ("EL CLIENTE") y Soluciones InfraCloud Latam S.L. ("EL PROVEEDOR").
+1. OBJETO: Servicios externos de alojamiento en la nube, ciberseguridad gestionada y soporte 24/7.
+2. PLAZO Y RENOVACIÓN AUTOMÁTICA: Vigencia inicial de 24 meses (1 nov 2026 al 31 oct 2028), renovación automática salvo aviso con 90 días.
+3. TARIFAS: $6,200 USD mensuales + IVA; interés moratorio del 2.5% mensual.
+4. SLA Y LIMITACIÓN: Disponibilidad 99.9% con crédito del 10% como única compensación; responsabilidad limitada a los últimos 3 meses facturados.`,
+        },
+      ];
+
+      const SYSTEM_INSTRUCTION = `Eres un abogado corporativo y deportivo sénior especializado en auditoría y clasificación contractual.
+Clasifica OBLIGATORIAMENTE el contrato en una de estas 3 categorías exactas:
+1. "jugadores": Contratos deportivos, fichajes, cesiones, derechos de imagen de atletas/jugadores, bonos deportivos o cláusulas de rescisión.
+2. "administradores": Contratos de alta dirección, gerencia general, administradores societarios, consejeros, apoderados o mandatos directivos.
+3. "proveedores": Contratos comerciales con terceros externos para suministro de bienes, servicios técnicos, licencias SaaS, logística, mantenimiento o consultoría externa.
+Responde siempre en español formal y objetivo.`;
+
+      const RESPONSE_SCHEMA = {
+        type: 'OBJECT',
+        properties: {
+          categoria: { type: 'STRING', enum: ['jugadores', 'administradores', 'proveedores'] },
+          confianza: { type: 'INTEGER' },
+          justificacion_clasificacion: { type: 'STRING' },
+          titulo_contrato: { type: 'STRING' },
+          subtipo: { type: 'STRING' },
+          partes_involucradas: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: { nombre: { type: 'STRING' }, rol: { type: 'STRING' } },
+              required: ['nombre', 'rol'],
+            },
+          },
+          resumen_ejecutivo: { type: 'STRING' },
+          fecha_inicio: { type: 'STRING' },
+          fecha_fin: { type: 'STRING' },
+          valor_economico: { type: 'STRING' },
+          obligaciones_clave: { type: 'ARRAY', items: { type: 'STRING' } },
+          clausulas_criticas: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                titulo: { type: 'STRING' },
+                detalle: { type: 'STRING' },
+                nivel_riesgo: { type: 'STRING', enum: ['bajo', 'medio', 'alto'] },
+              },
+              required: ['titulo', 'detalle', 'nivel_riesgo'],
+            },
+          },
+          riesgo_general: { type: 'STRING', enum: ['bajo', 'medio', 'alto'] },
+          recomendaciones: { type: 'ARRAY', items: { type: 'STRING' } },
+        },
+        required: [
+          'categoria', 'confianza', 'justificacion_clasificacion', 'titulo_contrato',
+          'subtipo', 'partes_involucradas', 'resumen_ejecutivo', 'fecha_inicio',
+          'fecha_fin', 'valor_economico', 'obligaciones_clave', 'clausulas_criticas',
+          'riesgo_general', 'recomendaciones',
+        ],
+      };
+
+      async function callGeminiDirect({ apiKey, preferredModel, textContent, inlineFile, fileName }) {
+        const allIds = FREE_TIER_MODELS.map((m) => m.id);
+        const start = preferredModel && preferredModel !== 'auto' ? preferredModel : allIds[0];
+        const candidates = [start, ...allIds.filter((id) => id !== start)];
+
+        const parts = [];
+        if (inlineFile?.base64 && inlineFile?.mimeType) {
+          parts.push({ inlineData: { mimeType: inlineFile.mimeType, data: inlineFile.base64 } });
+        }
+        parts.push({
+          text: textContent?.trim()
+            ? `Analiza y clasifica el siguiente contrato (${fileName}) en jugadores, administradores o proveedores:\n\n${textContent.trim()}`
+            : `Analiza y clasifica el contrato adjunto (${fileName}) en jugadores, administradores o proveedores.`,
+        });
+
+        let lastErr = null;
+        for (const modelId of candidates) {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent`;
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': apiKey,
+            },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+              contents: [{ role: 'user', parts }],
+              generationConfig: {
+                temperature: 0.15,
+                responseMimeType: 'application/json',
+                responseSchema: RESPONSE_SCHEMA,
+              },
+            }),
+          });
+
+          const data = await res.json();
+          if (res.ok) {
+            const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (!rawText) throw new Error('Gemini devolvió una respuesta vacía.');
+            return { ...JSON.parse(rawText), fileName, modelUsed: modelId, analyzedAt: new Date().toISOString() };
+          }
+
+          const msg = data?.error?.message || `Error HTTP ${res.status}`;
+          lastErr = new Error(msg);
+          if (res.status === 404 || msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('deprecated')) {
+            continue;
+          }
+          if (res.status === 401 || res.status === 403) {
+            throw new Error('Llave de API inválida o sin permisos. Verifica tu llave gratuita de Google AI Studio.');
+          }
+          if (res.status === 429) {
+            throw new Error('Límite gratuito alcanzado temporalmente (429). Espera unos segundos o cambia a Gemini 3.5 Flash-Lite.');
+          }
+          throw lastErr;
+        }
+        throw lastErr || new Error('No fue posible analizar con ningún modelo gratuito.');
+      }
+
+      function readFileForGemini(file) {
+        return new Promise((resolve, reject) => {
+          const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+          const reader = new FileReader();
+          if (['.txt', '.md', '.csv', '.json', '.rtf'].includes(ext) || file.type.startsWith('text/')) {
+            reader.onload = () => resolve({ textContent: String(reader.result || ''), inlineFile: null });
+            reader.onerror = () => reject(new Error(`No se pudo leer ${file.name}`));
+            reader.readAsText(file);
+          } else if (['.pdf', '.png', '.jpg', '.jpeg', '.webp'].includes(ext)) {
+            const mimeMap = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
+            reader.onload = () => {
+              const dataUrl = String(reader.result || '');
+              const base64 = dataUrl.split(',')[1] || '';
+              resolve({ textContent: '', inlineFile: { mimeType: mimeMap[ext] || file.type, base64 } });
+            };
+            reader.onerror = () => reject(new Error(`No se pudo leer ${file.name}`));
+            reader.readAsDataURL(file);
+          } else {
+            reject(new Error(`Formato ${ext} no soportado en modo directo sin servidor. Usa PDF, TXT, MD o imágenes (PNG/JPG).`));
+          }
+        });
+      }
+
+      function exportCsv(contracts) {
+        const esc = (v) => `"${String(v ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '""')}"`;
+        const headers = ['Grupo', 'Título', 'Subtipo', 'Archivo', 'Confianza %', 'Riesgo', 'Inicio', 'Fin', 'Valor', 'Resumen', 'Notas'];
+        const rows = contracts.map((c) => [
+          CONTRACT_GROUPS[c.categoria]?.label || c.categoria,
+          c.titulo_contrato, c.subtipo, c.fileName, c.confianza, c.riesgo_general,
+          c.fecha_inicio, c.fecha_fin, c.valor_economico, c.resumen_ejecutivo, c.notas || '',
+        ]);
+        const csv = '\uFEFF' + [headers, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `lexaura_contratos_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function App() {
+        const [contracts, setContracts] = useState(() => {
+          try { return JSON.parse(localStorage.getItem('lexaura_contracts_v1') || '[]'); } catch { return []; }
+        });
+        const [apiKey, setApiKey] = useState(() => sessionStorage.getItem('lexaura_gemini_session_key') || '');
+        const [draftKey, setDraftKey] = useState(apiKey);
+        const [showKeyModal, setShowKeyModal] = useState(false);
+
+        const [mode, setMode] = useState('files');
+        const [selectedModel, setSelectedModel] = useState('auto');
+        const [queuedFiles, setQueuedFiles] = useState([]);
+        const [titleRef, setTitleRef] = useState('');
+        const [rawText, setRawText] = useState('');
+        const [isAnalyzing, setIsAnalyzing] = useState(false);
+        const [progress, setProgress] = useState('');
+        const [errorMsg, setErrorMsg] = useState('');
+
+        const [activeGroup, setActiveGroup] = useState('todos');
+        const [riskFilter, setRiskFilter] = useState('todos');
+        const [searchQuery, setSearchQuery] = useState('');
+        const [viewMode, setViewMode] = useState('board');
+        const [selectedContractId, setSelectedContractId] = useState(null);
+        const fileInputRef = useRef(null);
+
+        useEffect(() => {
+          try { localStorage.setItem('lexaura_contracts_v1', JSON.stringify(contracts)); } catch {}
+        }, [contracts]);
+
+        const counts = useMemo(() => ({
+          todos: contracts.length,
+          jugadores: contracts.filter((c) => c.categoria === 'jugadores').length,
+          administradores: contracts.filter((c) => c.categoria === 'administradores').length,
+          proveedores: contracts.filter((c) => c.categoria === 'proveedores').length,
+        }), [contracts]);
+
+        const filtered = useMemo(() => {
+          const q = searchQuery.trim().toLowerCase();
+          return contracts.filter((c) => {
+            if (activeGroup !== 'todos' && c.categoria !== activeGroup) return false;
+            if (riskFilter !== 'todos' && c.riesgo_general !== riskFilter) return false;
+            if (!q) return true;
+            return [c.titulo_contrato, c.subtipo, c.fileName, c.resumen_ejecutivo, c.valor_economico]
+              .join(' ').toLowerCase().includes(q);
+          });
+        }, [contracts, activeGroup, riskFilter, searchQuery]);
+
+        const ensureKey = () => {
+          if (!apiKey.trim()) {
+            setShowKeyModal(true);
+            setErrorMsg('Ingresa tu llave gratuita de Google AI Studio (aistudio.google.com/apikey) para analizar.');
+            return false;
+          }
+          return true;
+        };
+
+        const handleAnalyzeFiles = async (e) => {
+          e.preventDefault();
+          if (!queuedFiles.length || isAnalyzing || !ensureKey()) return;
+          setErrorMsg('');
+          setIsAnalyzing(true);
+          try {
+            for (let i = 0; i < queuedFiles.length; i++) {
+              const file = queuedFiles[i];
+              setProgress(`Analizando ${i + 1} de ${queuedFiles.length}: ${file.name}`);
+              const payload = await readFileForGemini(file);
+              const result = await callGeminiDirect({
+                apiKey: apiKey.trim(),
+                preferredModel: selectedModel,
+                ...payload,
+                fileName: file.name,
+              });
+              setContracts((prev) => [{ ...result, id: `ct_${Date.now()}_${i}`, notas: '' }, ...prev]);
+            }
+            setQueuedFiles([]);
+          } catch (err) {
+            setErrorMsg(err.message);
+          } finally {
+            setIsAnalyzing(false);
+            setProgress('');
+          }
+        };
+
+        const handleAnalyzeText = async (e) => {
+          e.preventDefault();
+          if (!rawText.trim() || isAnalyzing || !ensureKey()) return;
+          setErrorMsg('');
+          setIsAnalyzing(true);
+          setProgress('Clasificando contrato con Gemini...');
+          try {
+            const result = await callGeminiDirect({
+              apiKey: apiKey.trim(),
+              preferredModel: selectedModel,
+              textContent: rawText,
+              inlineFile: null,
+              fileName: titleRef.trim() || 'Contrato manual',
+            });
+            setContracts((prev) => [{ ...result, id: `ct_${Date.now()}`, notas: '' }, ...prev]);
+            setRawText('');
+            setTitleRef('');
+          } catch (err) {
+            setErrorMsg(err.message);
+          } finally {
+            setIsAnalyzing(false);
+            setProgress('');
+          }
+        };
+
+        const selectedContract = contracts.find((c) => c.id === selectedContractId) || null;
+        const visibleGroups = activeGroup === 'todos' ? GROUP_ORDER : [activeGroup];
+
+        return (
+          <div className="flex min-h-screen flex-col">
+            <header className="sticky top-0 z-30 border-b gold-hairline bg-obsidian-950/90 backdrop-blur-md">
+              <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-gold-400/50 bg-gradient-to-br from-gold-400/20 via-obsidian-850 to-obsidian-900 shadow-gold-sm text-gold-400 font-display text-lg font-bold">
+                    §
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h1 className="font-display text-xl font-bold tracking-wide text-zinc-50 sm:text-2xl">
+                        LEX<span className="gold-gradient-text">AURA</span>
+                      </h1>
+                      <span className="rounded border border-gold-400/30 bg-gold-400/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-gold-300">
+                        Gemini Free Tier
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400">
+                      Clasificador Contractual · Jugadores · Administradores · Proveedores
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setDraftKey(apiKey); setShowKeyModal(true); }}
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                      apiKey
+                        ? 'border-gold-400/40 bg-obsidian-850 text-gold-200 hover:border-gold-400'
+                        : 'border-amber-400/70 bg-gold-400/15 text-gold-200 hover:bg-gold-400/25'
+                    }`}
+                  >
+                    {apiKey ? '✓ Llave Google AI Activa' : '⚙ Configurar Llave Google AI'}
+                  </button>
+                  {contracts.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => exportCsv(contracts)}
+                      className="rounded-lg border gold-hairline bg-obsidian-850 px-3 py-2 text-xs font-medium text-zinc-200 hover:border-gold-400/50 hover:text-gold-300"
+                    >
+                      Exportar CSV
+                    </button>
+                  )}
+                </div>
+              </div>
+            </header>
+
+            <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 lg:px-8">
+              <div className="mb-6 flex flex-col justify-between gap-3 border-b gold-hairline pb-5 md:flex-row md:items-end">
+                <div>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-gold-400">
+                    Sistema de Inteligencia Jurídica
+                  </p>
+                  <h2 className="mt-1 font-display text-2xl font-bold text-zinc-50 sm:text-3xl">
+                    Organización y Clasificación de Contratos
+                  </h2>
+                </div>
+                <p className="max-w-xl text-xs leading-relaxed text-zinc-400">
+                  Sube contratos en PDF, TXT o pega cláusulas para clasificarlos automáticamente en{' '}
+                  <span className="text-gold-300">Jugadores</span>,{' '}
+                  <span className="text-gold-300">Administradores</span> y{' '}
+                  <span className="text-gold-300">Proveedores</span> con tu llave gratuita de Google AI Studio.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+                {/* Panel Izquierdo */}
+                <section className="lg:col-span-4 rounded-2xl border gold-hairline bg-obsidian-900/95 p-5 shadow-gold-sm">
+                  <div className="flex items-center justify-between border-b gold-hairline pb-4">
+                    <div>
+                      <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-gold-400">Módulo de Ingreso</span>
+                      <h3 className="font-display text-xl font-semibold text-zinc-50">Analizar Contrato</h3>
+                    </div>
+                    <div className="flex rounded-lg border gold-hairline bg-obsidian-950 p-1">
+                      <button type="button" onClick={() => setMode('files')} className={`rounded-md px-2.5 py-1 text-xs font-medium ${mode === 'files' ? 'bg-gold-400 text-obsidian-950' : 'text-zinc-400'}`}>Archivos</button>
+                      <button type="button" onClick={() => setMode('text')} className={`rounded-md px-2.5 py-1 text-xs font-medium ${mode === 'text' ? 'bg-gold-400 text-obsidian-950' : 'text-zinc-400'}`}>Texto</button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                      Modelo Google AI (Nivel Gratuito)
+                    </label>
+                    <select
+                      value={selectedModel}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                      className="w-full rounded-xl border gold-hairline bg-obsidian-950 px-3 py-2 text-xs text-zinc-200 focus:border-gold-400 focus:outline-none"
+                    >
+                      <option value="auto">Automático (Gemini 3.8 Flash con respaldo)</option>
+                      {FREE_TIER_MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {errorMsg && (
+                    <div className="mt-4 rounded-xl border border-red-500/40 bg-red-950/40 p-3 text-xs text-red-200 flex justify-between gap-2">
+                      <span>{errorMsg}</span>
+                      <button type="button" onClick={() => setErrorMsg('')} className="text-red-300 font-bold">✕</button>
+                    </div>
+                  )}
+
+                  {mode === 'files' ? (
+                    <form onSubmit={handleAnalyzeFiles} className="mt-4 space-y-4">
+                      <div
+                        onClick={() => fileInputRef.current?.click()}
+                        className="cursor-pointer rounded-xl border-2 border-dashed border-gold-400/25 bg-obsidian-950/70 p-6 text-center hover:border-gold-400/60"
+                      >
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          multiple
+                          accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg,.webp"
+                          className="hidden"
+                          onChange={(e) => setQueuedFiles((prev) => [...prev, ...Array.from(e.target.files || [])])}
+                        />
+                        <p className="text-sm font-medium text-zinc-100">
+                          Haz clic para <span className="text-gold-400 underline">seleccionar contratos</span>
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-400">PDF, TXT, MD, CSV o imágenes (PNG/JPG)</p>
+                      </div>
+
+                      {queuedFiles.length > 0 && (
+                        <ul className="space-y-1.5 max-h-40 overflow-y-auto">
+                          {queuedFiles.map((f, idx) => (
+                            <li key={idx} className="flex items-center justify-between rounded-lg border gold-hairline bg-obsidian-950 px-3 py-2 text-xs">
+                              <span className="truncate text-zinc-200">{f.name}</span>
+                              <button type="button" onClick={() => setQueuedFiles((p) => p.filter((_, i) => i !== idx))} className="text-zinc-400 hover:text-zinc-100 ml-2">✕</button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={!queuedFiles.length || isAnalyzing}
+                        className="w-full rounded-xl bg-gradient-to-r from-gold-400 via-gold-300 to-gold-500 px-4 py-3 text-sm font-semibold text-obsidian-950 disabled:opacity-45"
+                      >
+                        {isAnalyzing ? progress || 'Analizando...' : 'Analizar y Clasificar'}
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleAnalyzeText} className="mt-4 space-y-3">
+                      <input
+                        type="text"
+                        value={titleRef}
+                        onChange={(e) => setTitleRef(e.target.value)}
+                        placeholder="Referencia del contrato..."
+                        className="w-full rounded-xl border gold-hairline bg-obsidian-950 px-3 py-2 text-xs text-zinc-100 focus:border-gold-400 focus:outline-none"
+                      />
+                      <textarea
+                        rows={7}
+                        value={rawText}
+                        onChange={(e) => setRawText(e.target.value)}
+                        placeholder="Pega el texto completo o cláusulas del contrato..."
+                        className="w-full rounded-xl border gold-hairline bg-obsidian-950 p-3 text-xs text-zinc-100 focus:border-gold-400 focus:outline-none"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!rawText.trim() || isAnalyzing}
+                        className="w-full rounded-xl bg-gradient-to-r from-gold-400 via-gold-300 to-gold-500 px-4 py-3 text-sm font-semibold text-obsidian-950 disabled:opacity-45"
+                      >
+                        {isAnalyzing ? progress || 'Analizando...' : 'Analizar Texto'}
+                      </button>
+                    </form>
+                  )}
+
+                  <div className="mt-5 border-t gold-hairline pt-4">
+                    <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+                      Cargar contrato de ejemplo:
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+                      {SAMPLE_CONTRACTS.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => { setMode('text'); setTitleRef(s.fileName); setRawText(s.text); }}
+                          className="rounded-lg border gold-hairline bg-obsidian-950 px-2.5 py-2 text-left text-[11px] font-medium text-gold-200 hover:border-gold-400/60"
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Panel Derecho */}
+                <section className="lg:col-span-8 space-y-5">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <button type="button" onClick={() => setActiveGroup('todos')} className={`rounded-2xl border p-4 text-left ${activeGroup === 'todos' ? 'border-gold-400/70 bg-obsidian-850' : 'gold-hairline bg-obsidian-900/90'}`}>
+                      <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-400">Total</span>
+                      <div className="mt-1 font-display text-3xl font-bold text-gold-300">{counts.todos}</div>
+                    </button>
+                    {GROUP_ORDER.map((gid) => (
+                      <button key={gid} type="button" onClick={() => setActiveGroup(activeGroup === gid ? 'todos' : gid)} className={`rounded-2xl border p-4 text-left ${activeGroup === gid ? 'border-gold-400/70 bg-obsidian-850' : 'gold-hairline bg-obsidian-900/90'}`}>
+                        <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-400">{CONTRACT_GROUPS[gid].label}</span>
+                        <div className="mt-1 font-display text-3xl font-bold text-zinc-50">{counts[gid]}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border gold-hairline bg-obsidian-900/90 p-3.5">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Buscar por título, parte o monto..."
+                      className="min-w-[200px] flex-1 rounded-xl border gold-hairline bg-obsidian-950 px-3 py-2 text-xs text-zinc-100 focus:border-gold-400 focus:outline-none"
+                    />
+                    <div className="flex items-center gap-2">
+                      <select value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)} className="rounded-xl border gold-hairline bg-obsidian-950 px-3 py-2 text-xs text-zinc-200">
+                        <option value="todos">Riesgo: Todos</option>
+                        <option value="alto">Riesgo Alto</option>
+                        <option value="medio">Riesgo Medio</option>
+                        <option value="bajo">Riesgo Bajo</option>
+                      </select>
+                      <button type="button" onClick={() => setViewMode(viewMode === 'board' ? 'list' : 'board')} className="rounded-xl border gold-hairline bg-obsidian-950 px-3 py-2 text-xs text-gold-300">
+                        {viewMode === 'board' ? 'Vista Lista' : 'Vista 3 Grupos'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {contracts.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-gold-400/25 bg-obsidian-900/60 px-6 py-16 text-center">
+                      <h3 className="font-display text-xl font-semibold text-zinc-100">Bóveda Contractual Vacía</h3>
+                      <p className="mt-2 text-xs text-zinc-400">
+                        Configura tu llave gratuita de Google AI Studio arriba y sube un contrato o prueba los ejemplos del panel izquierdo.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className={`grid gap-4 ${viewMode === 'board' && visibleGroups.length > 1 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1'}`}>
+                      {visibleGroups.map((gid) => {
+                        const group = CONTRACT_GROUPS[gid];
+                        const items = filtered.filter((c) => c.categoria === gid);
+                        return (
+                          <div key={gid} className="rounded-2xl border gold-hairline bg-obsidian-900/80">
+                            <div className="flex items-center justify-between border-b gold-hairline px-4 py-3">
+                              <div>
+                                <h4 className="font-display text-base font-semibold text-zinc-50">{group.label}</h4>
+                                <p className="text-[10px] text-zinc-400">{group.subtitle}</p>
+                              </div>
+                              <span className="rounded-full border border-gold-400/35 bg-obsidian-950 px-2.5 py-0.5 font-mono text-xs text-gold-300">{items.length}</span>
+                            </div>
+                            <div className="space-y-3 p-3.5">
+                              {items.length === 0 ? (
+                                <p className="py-6 text-center text-xs text-zinc-500">Sin contratos</p>
+                              ) : items.map((c) => {
+                                const r = RISK_STYLES[c.riesgo_general] || RISK_STYLES.medio;
+                                return (
+                                  <article key={c.id} className="rounded-xl border gold-hairline bg-obsidian-950 p-3.5 hover:border-gold-400/55">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className={`rounded px-2 py-0.5 text-[10px] font-medium ${r.badgeClass}`}>{r.label}</span>
+                                      <span className="font-mono text-[10px] text-gold-300">{c.confianza}% conf.</span>
+                                    </div>
+                                    <button type="button" onClick={() => setSelectedContractId(c.id)} className="mt-2 block w-full text-left">
+                                      <h5 className="font-display text-sm font-semibold text-zinc-50 hover:text-gold-300">{c.titulo_contrato}</h5>
+                                      <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{c.resumen_ejecutivo}</p>
+                                    </button>
+                                    <div className="mt-3 flex items-center justify-between border-t border-zinc-900 pt-2 text-[11px]">
+                                      <select
+                                        value={c.categoria}
+                                        onChange={(e) => setContracts((prev) => prev.map((x) => x.id === c.id ? { ...x, categoria: e.target.value } : x))}
+                                        className="rounded border border-zinc-800 bg-obsidian-900 px-1.5 py-1 text-[11px] text-zinc-300"
+                                      >
+                                        <option value="jugadores">Jugadores</option>
+                                        <option value="administradores">Administradores</option>
+                                        <option value="proveedores">Proveedores</option>
+                                      </select>
+                                      <div className="flex items-center gap-2">
+                                        <button type="button" onClick={() => setSelectedContractId(c.id)} className="rounded bg-gold-400/15 px-2.5 py-1 text-gold-200 hover:bg-gold-400 hover:text-obsidian-950">Dictamen</button>
+                                        <button type="button" onClick={() => setContracts((p) => p.filter((x) => x.id !== c.id))} className="text-zinc-500 hover:text-red-300">✕</button>
+                                      </div>
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </main>
+
+            {/* Modal Dictamen */}
+            {selectedContract && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-gold-400/40 bg-obsidian-900 shadow-gold">
+                  <div className="flex items-start justify-between border-b gold-hairline bg-obsidian-950 px-6 py-4">
+                    <div>
+                      <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${CONTRACT_GROUPS[selectedContract.categoria]?.badgeClass}`}>
+                        {CONTRACT_GROUPS[selectedContract.categoria]?.label}
+                      </span>
+                      <h3 className="mt-1 font-display text-xl font-bold text-zinc-50">{selectedContract.titulo_contrato}</h3>
+                    </div>
+                    <button type="button" onClick={() => setSelectedContractId(null)} className="text-zinc-400 hover:text-zinc-100 text-lg">✕</button>
+                  </div>
+                  <div className="flex-1 space-y-4 overflow-y-auto p-6 text-xs">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="rounded-xl border gold-hairline bg-obsidian-950 p-3">
+                        <span className="text-zinc-400">Valor Económico</span>
+                        <p className="mt-1 font-mono text-gold-200">{selectedContract.valor_economico}</p>
+                      </div>
+                      <div className="rounded-xl border gold-hairline bg-obsidian-950 p-3">
+                        <span className="text-zinc-400">Vigencia</span>
+                        <p className="mt-1 font-mono text-zinc-200">{selectedContract.fecha_inicio} → {selectedContract.fecha_fin}</p>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border gold-hairline bg-obsidian-850 p-4">
+                      <p className="text-sm text-zinc-200">{selectedContract.resumen_ejecutivo}</p>
+                      <p className="mt-2 text-zinc-400"><strong className="text-gold-300">Criterio:</strong> {selectedContract.justificacion_clasificacion}</p>
+                    </div>
+                    <div>
+                      <h4 className="font-display text-sm font-semibold text-zinc-100 mb-2">Cláusulas Críticas</h4>
+                      <div className="space-y-2">
+                        {(selectedContract.clausulas_criticas || []).map((cl, idx) => (
+                          <div key={idx} className="rounded-xl border gold-hairline bg-obsidian-950 p-3">
+                            <div className="flex justify-between">
+                              <strong className="text-zinc-100">{cl.titulo}</strong>
+                              <span className={`rounded px-2 py-0.5 text-[10px] ${RISK_STYLES[cl.nivel_riesgo]?.badgeClass}`}>{RISK_STYLES[cl.nivel_riesgo]?.label}</span>
+                            </div>
+                            <p className="mt-1 text-zinc-400">{cl.detalle}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-display text-sm font-semibold text-zinc-100 mb-2">Recomendaciones</h4>
+                      <ul className="space-y-1.5">
+                        {(selectedContract.recomendaciones || []).map((r, i) => (
+                          <li key={i} className="rounded-lg border border-gold-400/20 bg-gold-400/5 px-3 py-2 text-gold-100">{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Llave API */}
+            {showKeyModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+                <div className="w-full max-w-md rounded-2xl border border-gold-400/40 bg-obsidian-900 p-6 shadow-gold">
+                  <div className="flex justify-between items-center border-b gold-hairline pb-3">
+                    <h3 className="font-display text-lg font-semibold text-zinc-50">Llave Google AI Studio (Gratuita)</h3>
+                    <button type="button" onClick={() => setShowKeyModal(false)} className="text-zinc-400 hover:text-zinc-100">✕</button>
+                  </div>
+                  <p className="mt-3 text-xs leading-relaxed text-zinc-400">
+                    Obtén tu llave gratuita en{' '}
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-gold-300 underline">
+                      aistudio.google.com/apikey
+                    </a>{' '}
+                    y pégala aquí para usarla directamente en tu navegador.
+                  </p>
+                  <input
+                    type="password"
+                    value={draftKey}
+                    onChange={(e) => setDraftKey(e.target.value)}
+                    placeholder="AIzaSy..."
+                    className="mt-3 w-full rounded-xl border gold-hairline bg-obsidian-950 px-3 py-2.5 font-mono text-xs text-zinc-100 focus:border-gold-400 focus:outline-none"
+                  />
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button type="button" onClick={() => setShowKeyModal(false)} className="rounded-lg border gold-hairline px-3 py-2 text-xs text-zinc-300">Cancelar</button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cleaned = draftKey.trim();
+                        setApiKey(cleaned);
+                        if (cleaned) sessionStorage.setItem('lexaura_gemini_session_key', cleaned);
+                        else sessionStorage.removeItem('lexaura_gemini_session_key');
+                        setShowKeyModal(false);
+                      }}
+                      className="rounded-lg bg-gold-400 px-4 py-2 text-xs font-semibold text-obsidian-950"
+                    >
+                      Guardar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+  </body>
+</html>
